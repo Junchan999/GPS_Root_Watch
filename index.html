@@ -307,7 +307,7 @@
 <body>
     <div class="app-container"> <!-- アプリ全体のコンテナ -->
         <div class="controls-panel">
-            <h1>GPXルート表示アプリ Ver1.30</h1>
+            <h1>GPXルート表示アプリ Ver1.40</h1>
             <div class="interaction-area"> <!-- 新しい横並びコンテナ -->
                 <div class="button-group">
                     <button id="clearRouteButton" class="red-button" disabled>ルートクリア</button>
@@ -375,6 +375,11 @@
 
             let globalProcessedGpxData = []; // 処理済みGPXデータをグローバルに保持
             let globalChartLabels = [];       // グラフのX軸ラベルをグローバルに保持
+            
+            // 新しい変数で合計値を保持
+            let totalRouteDistanceKm = 0;
+            let totalRouteTimeMs = 0;
+            let averageRouteSpeedKmH = 0;
 
             // ボタンの状態を更新する関数
             const updateButtonStates = () => {
@@ -446,7 +451,22 @@
                 if (latLngPoints.length > 0) {
                     gpxPolyline = L.polyline(latLngPoints, { color: 'blue', weight: 5, opacity: 0.75 }).addTo(map);
                     map.fitBounds(gpxPolyline.getBounds()); // ルート全体が収まるようにズーム
-                    statusMessage.textContent = `GPXルートを読み込みました。（${latLngPoints.length}地点）`;
+                    
+                    // ステータスメッセージを更新（ここで新しい情報を追加）
+                    let statusText = `GPXルートを読み込みました。（${latLngPoints.length}地点）`;
+                    if (totalRouteDistanceKm > 0) {
+                        statusText += `<br>合計距離: ${totalRouteDistanceKm.toFixed(2)} km`;
+                    }
+                    if (totalRouteTimeMs > 0) {
+                        const hours = Math.floor(totalRouteTimeMs / (1000 * 60 * 60));
+                        const minutes = Math.floor((totalRouteTimeMs % (1000 * 60 * 60)) / (1000 * 60));
+                        const seconds = Math.floor((totalRouteTimeMs % (1000 * 60)) / 1000);
+                        statusText += ` | 合計時間: ${hours}時間${minutes}分${seconds}秒`;
+                    }
+                    if (averageRouteSpeedKmH > 0) {
+                        statusText += ` | 平均時速: ${averageRouteSpeedKmH.toFixed(2)} km/h`;
+                    }
+                    statusMessage.innerHTML = statusText; // innerHTMLで<br>タグを解釈
                 } else {
                     statusMessage.textContent = 'GPXファイルに有効なルートポイントが見つかりませんでした。';
                 }
@@ -745,6 +765,10 @@
                 // グローバルデータもクリア
                 globalProcessedGpxData = [];
                 globalChartLabels = [];
+                // 集計値もクリア
+                totalRouteDistanceKm = 0;
+                totalRouteTimeMs = 0;
+                averageRouteSpeedKmH = 0;
 
                 statusMessage.textContent = 'ルートをクリアしました。';
                 gpxFileInput.value = ''; // ファイル選択をリセット
@@ -769,6 +793,12 @@
                         const rawGpxTrackPointsData = parseGpx(gpxString);
 
                         const processedGpxData = [];
+                        
+                        // 集計値をリセット
+                        totalRouteDistanceKm = 0;
+                        totalRouteTimeMs = 0;
+                        averageRouteSpeedKmH = 0; // ファイル読み込み時にリセット
+
                         for (let i = 0; i < rawGpxTrackPointsData.length; i++) {
                             const currentPoint = rawGpxTrackPointsData[i];
                             let speed = null; // 時速 (km/h)
@@ -777,7 +807,11 @@
                                 const prevPoint = rawGpxTrackPointsData[i - 1];
                                 if (prevPoint.time && currentPoint.time) {
                                     const distanceKm = calculateDistance(prevPoint.lat, prevPoint.lon, currentPoint.lat, currentPoint.lon);
+                                    totalRouteDistanceKm += distanceKm; // 合計距離に加算
+
                                     const timeDiffMs = currentPoint.time.getTime() - prevPoint.time.getTime();
+                                    totalRouteTimeMs += timeDiffMs; // 合計時間に加算
+
                                     const timeDiffHours = timeDiffMs / (1000 * 60 * 60); // msを時間に変換
 
                                     if (timeDiffHours > 0) { // ゼロ除算を避ける
@@ -787,10 +821,17 @@
                             }
                             processedGpxData.push({ ...currentPoint, speed: speed });
                         }
+
+                        // 平均時速を計算
+                        if (totalRouteTimeMs > 0) {
+                            averageRouteSpeedKmH = totalRouteDistanceKm / (totalRouteTimeMs / (1000 * 60 * 60));
+                        } else {
+                            averageRouteSpeedKmH = 0; // 時間がない場合や1点のみの場合は0
+                        }
                         
                         globalProcessedGpxData = processedGpxData; // グローバル変数に格納
 
-                        displayGpxTrack(processedGpxData); // 地図に表示
+                        displayGpxTrack(processedGpxData); // 地図に表示し、ステータスもここで更新される
                         displayGpxDataInTable(processedGpxData); // テーブルに表示
                         displayGpxChart(processedGpxData); // グラフに表示
 
@@ -808,6 +849,10 @@
                         // グローバルデータもクリア
                         globalProcessedGpxData = [];
                         globalChartLabels = [];
+                        // 集計値もクリア
+                        totalRouteDistanceKm = 0;
+                        totalRouteTimeMs = 0;
+                        averageRouteSpeedKmH = 0;
 
                         updateButtonStates();
                     }
@@ -825,6 +870,10 @@
                     // グローバルデータもクリア
                     globalProcessedGpxData = [];
                     globalChartLabels = [];
+                    // 集計値もクリア
+                    totalRouteDistanceKm = 0;
+                    totalRouteTimeMs = 0;
+                    averageRouteSpeedKmH = 0;
                     
                     updateButtonStates();
                 };
