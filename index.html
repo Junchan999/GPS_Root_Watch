@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPXルート表示アプリ Ver1.30</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+    <!-- Chart.js CSS (Optional, but useful for default styling) -->
+    <!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.css"> -->
+
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f0f2f5; /* 全体の背景色を少し変更 */
+            color: #333;
+            display: flex; /* app-containerを中央に配置するため */
+            justify-content: center; /* 水平中央 */
+            align-items: center; /* 垂直中央 */
+        }
+
+        .app-container {
+            width: 95vw; /* 画面幅の95% */
+            height: 95vh; /* 画面高さの95% */
+            background-color: #ffffff;
+            border-radius: 8px; /* 角を丸くする */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* 影を追加 */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* コンテナからはみ出る要素を隠す */
+            box-sizing: border-box; /* paddingとborderをwidth/heightに含める */
+        }
+
+        .controls-panel {
+            padding: 10px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #e0e0e0; /* 境界線を細くする */
+            text-align: center;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column; /* h1とその下のinteraction-areaを縦に並べるため */
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0; /* 縮小しない */
+        }
+        .controls-panel h1 {
+            font-size: 1.5em;
+            margin-top: 0;
+            margin-bottom: 5px; /* 余白を削減 */
+            color: #2c3e50;
+        }
+
+        /* 新しいインタラクションエリア（ボタン、ファイル入力、ステータス） */
+        .interaction-area {
+            display: flex;
+            flex-wrap: wrap; /* 画面幅が狭い場合に折り返しを許可 */
+            justify-content: center; /* アイテムを水平中央に配置 */
+            align-items: center; /* アイテムを垂直中央に配置 */
+            gap: 15px; /* アイテム間のスペース */
+            width: 100%; /* 親要素の幅を占める */
+            padding-bottom: 5px; /* コントロールエリアの下部に少し余白 */
+        }
+
+        .button-group {
+            display: flex; /* 内部のボタンが複数ある場合に備えて */
+            gap: 10px;
+            justify-content: center;
+            margin: 0; /* 不要なマージンを削除 */
+            flex-shrink: 0; /* 小さくなりにくいように */
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+        }
+        button.red-button {
+            background-color: #dc3545;
+        }
+        button.red-button:hover {
+            background-color: #c82333;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #d0d0d0;
+            color: #777;
+            cursor: not-allowed;
+        }
+        #gpxFileInput {
+            margin: 0; /* 不要なマージンを削除 */
+            flex-shrink: 0; /* 小さくなりにくいように */
+        }
+        #statusMessage {
+            margin: 0; /* 不要なマージンを削除 */
+            font-size: 0.9em;
+            color: #555;
+            text-align: left; /* デフォルトは左寄せ */
+            white-space: nowrap; /* 可能な限り折り返さない */
+            flex-shrink: 0; /* 小さくなりにくいように */
+        }
+
+        /* メインコンテンツ (地図とサイドパネル) */
+        .main-content {
+            display: flex;
+            flex-direction: row; /* 大画面では地図とサイドパネルを横に並べる */
+            flex-grow: 1; /* コントロールパネルの下の残りのスペースを全て占める */
+            width: 100%;
+            overflow: hidden; /* 子要素のオーバーフローを防ぐ */
+        }
+
+        #map {
+            flex-grow: 1; /* 残りのスペースを埋める */
+            flex-basis: 60%; /* 地図の初期幅 */
+            height: 100%; /* 親の高さに合わせる */
+        }
+
+        .side-panels { /* データパネルとグラフパネルのコンテナ */
+            display: flex;
+            flex-direction: column; /* データパネルとグラフパネルを縦に並べる */
+            flex-basis: 40%; /* サイドパネル全体の初期幅 */
+            flex-shrink: 0;
+            border-left: 1px solid #e0e0e0;
+            height: 100%; /* main-contentの高さに合わせる */
+            overflow: hidden; /* 子要素のオーバーフローを防ぐ */
+        }
+
+        /* データパネル (一覧表を格納) */
+        #data-panel {
+            flex-grow: 1; /* side-panels内の残りのスペースを埋める */
+            height: 45%; /* side-panelsの高さの45%を占める */
+            padding: 10px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #e0e0e0; /* グラフパネルとの区切り */
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column; /* h2とtable-containerを縦に並べるため */
+            overflow: hidden; /* table-containerのスクロールを制御するため */
+        }
+
+        #data-panel h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+            color: #2c3e50;
+            text-align: center;
+            flex-shrink: 0; /* 縮小しない */
+        }
+
+        .table-container {
+            overflow-y: auto; /* テーブル内容がはみ出したら縦スクロール */
+            flex-grow: 1; /* data-panelの残りのスペースを全て埋める */
+            -webkit-overflow-scrolling: touch; /* iOSでのスクロールをスムーズにする */
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85em;
+        }
+
+        table th, table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        
+        /* 列の順序に合わせて幅を調整 */
+        table th:nth-child(1),
+        table td:nth-child(1) { /* Time */
+            width: 45%;
+            text-align: center;
+        }
+        table th:nth-child(2),
+        table td:nth-child(2) { /* Lat */
+            width: 20%;
+            text-align: right;
+        }
+        table th:nth-child(3),
+        table td:nth-child(3) { /* Lon */
+            width: 20%;
+            text-align: right;
+        }
+        table th:nth-child(4),
+        table td:nth-child(4) { /* Ele */
+            width: 15%;
+            text-align: right;
+        }
+
+        table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        /* テーブル行のホバー効果とアクティブ状態 */
+        .gpx-data-table-row:hover {
+            background-color: #e8e8e8; /* ホバー時の背景色 */
+            cursor: pointer; /* クリック可能であることを示すカーソル */
+        }
+        .gpx-data-table-row.active-row {
+            background-color: #e0f7fa; /* アクティブな行の背景色 */
+            font-weight: bold; /* アクティブな行の文字を太くする */
+        }
+
+        /* グラフパネル */
+        #chart-panel {
+            flex-grow: 1; /* side-panels内の残りのスペースを埋める */
+            height: 55%; /* side-panelsの高さの55%を占める */
+            padding: 10px;
+            background-color: #ffffff;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column; /* h2とcanvasを縦に並べるため */
+            overflow: hidden; /* Canvas のサイズ調整のために必要 */
+        }
+        #chart-panel h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+            color: #2c3e50;
+            text-align: center;
+            flex-shrink: 0; /* 縮小しない */
+        }
+        #gpxChart {
+            flex-grow: 1; /* Canvas が親要素の残りの高さを埋める */
+            max-height: 100%; /* 親要素を超えないようにする */
+            width: 100% !important; /* Chart.js が生成するインラインスタイルを上書き */
+            height: 100% !important; /* Chart.js が生成するインラインスタイルを上書き */
+        }
+
+
+        /* 携帯電話などの小さい画面での調整 */
+        @media (max-width: 900px) { /* 中画面でのブレークポイント */
+            .app-container {
+                width: 98vw; /* 小さい画面では幅を少し広げる */
+                height: 98vh; /* 小さい画面では高さを少し広げる */
+            }
+            .main-content {
+                flex-direction: column; /* 地図とサイドパネルを縦に並べる */
+                height: 100%;
+            }
+            #map {
+                width: 100%;
+                height: 50%; /* main-contentの半分 */
+                flex-basis: auto;
+                flex-grow: 1;
+            }
+            .side-panels {
+                width: 100%;
+                height: 50%; /* main-contentの半分 */
+                flex-direction: column;
+                flex-basis: auto;
+                flex-grow: 1;
+                border-left: none;
+                border-top: 1px solid #e0e0e0;
+            }
+            #data-panel {
+                height: 45%; /* side-panelsの45% */
+                border-bottom: 1px solid #e0e0e0; /* グラフパネルとの区切りを維持 */
+            }
+            #chart-panel {
+                height: 55%; /* side-panelsの55% */
+                border-top: none; /* side-panelsのtop borderがあるため不要 */
+            }
+        }
+
+        @media (max-width: 600px) {
+            .controls-panel h1 {
+                font-size: 1.2em;
+            }
+            .interaction-area {
+                flex-direction: column; /* コントロール要素を縦に積み重ねる */
+                gap: 8px; /* 積み重ねた際のアイテム間のスペース */
+            }
+            .button-group, #gpxFileInput, #statusMessage {
+                width: 80%; /* コントロール要素の幅を調整 */
+            }
+            #statusMessage {
+                white-space: normal; /* 折り返しを許可 */
+                text-align: center; /* 中央寄せ */
+            }
+            /* テーブルの列幅を自動調整 */
+            table th:nth-child(1),
+            table td:nth-child(1),
+            table th:nth-child(2),
+            table td:nth-child(2),
+            table th:nth-child(3),
+            table td:nth-child(3),
+            table th:nth-child(4),
+            table td:nth-child(4) {
+                width: auto; /* 小さい画面では自動調整 */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container"> <!-- アプリ全体のコンテナ -->
+        <div class="controls-panel">
+            <h1>GPXルート表示アプリ Ver1.30</h1>
+            <div class="interaction-area"> <!-- 新しい横並びコンテナ -->
+                <div class="button-group">
+                    <button id="clearRouteButton" class="red-button" disabled>ルートクリア</button>
+                </div>
+                <input type="file" id="gpxFileInput" accept=".gpx">
+                <div id="statusMessage">GPXファイルを読み込んでください。</div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div id="map"></div>
+            <div class="side-panels"> <!-- データパネルとグラフパネルのコンテナ -->
+                <div id="data-panel">
+                    <h2>GPXデータポイント</h2>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time (JST)</th>
+                                    <th>Lat</th>
+                                    <th>Lon</th>
+                                    <th>Ele (m)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gpxDataTableBody">
+                                <!-- GPXデータがここに挿入されます -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="chart-panel">
+                    <h2>速度・高度グラフ</h2>
+                    <canvas id="gpxChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+    <!-- Chart.js JS -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js Annotations Plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0/dist/chartjs-plugin-annotation.min.js"></script>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // マップ初期化 (デフォルト位置: 東京タワー)
+            const map = L.map('map').setView([35.6586, 139.7454], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            const gpxFileInput = document.getElementById('gpxFileInput');
+            const statusMessage = document.getElementById('statusMessage');
+            const clearRouteButton = document.getElementById('clearRouteButton');
+            const gpxDataTableBody = document.getElementById('gpxDataTableBody');
+
+            let gpxPolyline = null; // GPXトラックのポリライン
+            let gpxChartInstance = null; // Chart.jsインスタンス
+            let currentPointMarker = null; // 現在地図に表示されているポイントマーカー
+            let activeTableRow = null; // 現在ハイライトされているテーブル行
+
+            let globalProcessedGpxData = []; // 処理済みGPXデータをグローバルに保持
+            let globalChartLabels = [];       // グラフのX軸ラベルをグローバルに保持
+
+            // ボタンの状態を更新する関数
+            const updateButtonStates = () => {
+                clearRouteButton.disabled = !gpxPolyline && gpxDataTableBody.children.length === 0 && !currentPointMarker;
+            };
+
+            // Haversine formula to calculate distance between two lat/lon points in km
+            const calculateDistance = (lat1, lon1, lat2, lon2) => {
+                const R = 6371; // Radius of Earth in kilometers
+                const toRadians = (deg) => deg * (Math.PI / 180);
+
+                const dLat = toRadians(lat2 - lat1);
+                const dLon = toRadians(lon2 - lon1);
+
+                const a =
+                    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                const distance = R * c; // Distance in km
+                return distance;
+            };
+
+            // GPXデータ解析関数（標高と時刻も取得するように修正）
+            const parseGpx = (gpxString) => {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(gpxString, "text/xml");
+
+                // XML解析エラーのチェック
+                if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
+                    const errorText = xmlDoc.getElementsByTagName('parsererror')[0].textContent;
+                    console.error("XML Parsing Error:", errorText);
+                    throw new Error("GPXファイルの解析に失敗しました。ファイルが不正な形式である可能性があります。");
+                }
+
+                // GPX 1.1の標準名前空間を指定してtrkpt要素を取得
+                const gpxNamespace = 'http://www.topografix.com/GPX/1/1';
+                const trkpts = xmlDoc.getElementsByTagNameNS(gpxNamespace, 'trkpt');
+                
+                const points = [];
+                for (let i = 0; i < trkpts.length; i++) {
+                    const lat = parseFloat(trkpts[i].getAttribute('lat'));
+                    const lon = parseFloat(trkpts[i].getAttribute('lon'));
+                    
+                    // 標高(ele)要素を取得
+                    const eleElement = trkpts[i].getElementsByTagNameNS(gpxNamespace, 'ele')[0];
+                    const ele = eleElement ? parseFloat(eleElement.textContent) : null; // 標高がなければnull
+
+                    // 時刻(time)要素を取得
+                    const timeElement = trkpts[i].getElementsByTagNameNS(gpxNamespace, 'time')[0];
+                    const time = timeElement ? new Date(timeElement.textContent) : null; // 時刻がなければnull
+                    
+                    if (!isNaN(lat) && !isNaN(lon)) { // 無効な緯度経度を除外
+                        points.push({ lat, lon, ele, time }); // オブジェクトとして緯度、経度、標高、時刻を保存
+                    }
+                }
+                return points;
+            };
+
+            // GPXトラック表示関数（オブジェクトの配列を受け取るように修正）
+            const displayGpxTrack = (pointsData) => {
+                if (gpxPolyline) {
+                    map.removeLayer(gpxPolyline); // 既存のルートがあれば削除
+                }
+
+                // Leafletのpolylineは[lat, lon]の配列を期待するため、変換
+                const latLngPoints = pointsData.map(p => [p.lat, p.lon]);
+
+                if (latLngPoints.length > 0) {
+                    gpxPolyline = L.polyline(latLngPoints, { color: 'blue', weight: 5, opacity: 0.75 }).addTo(map);
+                    map.fitBounds(gpxPolyline.getBounds()); // ルート全体が収まるようにズーム
+                    statusMessage.textContent = `GPXルートを読み込みました。（${latLngPoints.length}地点）`;
+                } else {
+                    statusMessage.textContent = 'GPXファイルに有効なルートポイントが見つかりませんでした。';
+                }
+                updateButtonStates();
+            };
+
+            // GPXデータをテーブルに表示する関数
+            const displayGpxDataInTable = (pointsData) => {
+                // 既存のデータをクリア
+                gpxDataTableBody.innerHTML = '';
+                activeTableRow = null; // テーブルクリア時にアクティブ行もリセット
+
+                if (pointsData.length > 0) {
+                    pointsData.forEach((point, index) => {
+                        const row = gpxDataTableBody.insertRow();
+                        row.classList.add('gpx-data-table-row'); // スタイルとイベント用のクラスを追加
+                        // データをデータ属性として保持
+                        row.dataset.index = index; // インデックスをデータ属性として追加
+                        row.dataset.lat = point.lat;
+                        row.dataset.lon = point.lon;
+                        row.dataset.ele = point.ele !== null ? point.ele : '';
+                        row.dataset.time = point.time ? point.time.toISOString() : ''; // ISO形式で時刻を保存
+
+                        // 行クリック時のイベントリスナー
+                        row.addEventListener('click', () => {
+                            // 以前にアクティブだった行のハイライトを解除
+                            if (activeTableRow) {
+                                activeTableRow.classList.remove('active-row');
+                            }
+                            // 現在の行をアクティブにしてハイライト
+                            row.classList.add('active-row');
+                            activeTableRow = row;
+
+                            // 地図にマーカーを表示
+                            const clickedLat = parseFloat(row.dataset.lat);
+                            const clickedLon = parseFloat(row.dataset.lon);
+                            const clickedEle = row.dataset.ele !== '' ? parseFloat(row.dataset.ele) : null;
+                            const clickedTime = row.dataset.time !== '' ? new Date(row.dataset.time) : null;
+                            const clickedIndex = parseInt(row.dataset.index, 10);
+
+                            displayPointOnMap(clickedLat, clickedLon, clickedEle, clickedTime);
+                            highlightChartPoint(clickedIndex); // グラフにラインを表示
+                        });
+
+                        // 順番を 時刻、緯度、経度、標高 に変更
+                        const timeCell = row.insertCell(); 
+                        const latCell = row.insertCell();
+                        const lonCell = row.insertCell();
+                        const eleCell = row.insertCell();
+                        
+                        // 時刻があれば日本時間でフォーマットして表示
+                        if (point.time) {
+                            timeCell.textContent = point.time.toLocaleString('ja-JP', { 
+                                year: 'numeric', 
+                                month: '2-digit', 
+                                day: '2-digit', 
+                                hour: '2-digit', 
+                                minute: '2-digit', 
+                                second: '2-digit', 
+                                hourCycle: 'h23',
+                                timeZone: 'Asia/Tokyo' 
+                            });
+                        } else {
+                            timeCell.textContent = '-';
+                        }
+                        
+                        latCell.textContent = point.lat.toFixed(6); // 緯度を小数点以下6桁で表示
+                        lonCell.textContent = point.lon.toFixed(6); // 経度を小数点以下6桁で表示
+                        eleCell.textContent = point.ele !== null ? point.ele.toFixed(2) : '-'; // 標高があれば小数点以下2桁、なければ'-'
+                    });
+                } else {
+                    const row = gpxDataTableBody.insertRow();
+                    const cell = row.insertCell();
+                    cell.colSpan = 4; // 4列を結合 (Time, Lat, Lon, Ele)
+                    cell.textContent = 'データがありません。';
+                    cell.style.textAlign = 'center';
+                    cell.style.fontStyle = 'italic';
+                    cell.style.color = '#777';
+                }
+            };
+
+            // 地図に特定のポイントをマーカーとして表示する関数
+            const displayPointOnMap = (lat, lon, ele, time) => {
+                // 既存のポイントマーカーがあれば削除
+                if (currentPointMarker) {
+                    map.removeLayer(currentPointMarker);
+                }
+
+                const markerLatLng = L.latLng(lat, lon);
+                let popupContent = `<b>緯度:</b> ${lat.toFixed(6)}<br><b>経度:</b> ${lon.toFixed(6)}`;
+                if (ele !== null) {
+                    popupContent += `<br><b>高度:</b> ${ele.toFixed(2)} m`;
+                }
+                if (time) {
+                    popupContent += `<br><b>時刻 (JST):</b> ${time.toLocaleString('ja-JP', { 
+                        year: 'numeric', month: '2-digit', day: '2-digit', 
+                        hour: '2-digit', minute: '2-digit', second: '2-digit', 
+                        hourCycle: 'h23', timeZone: 'Asia/Tokyo' 
+                    })}`;
+                }
+
+                currentPointMarker = L.marker(markerLatLng, {
+                    // カスタムアイコンなどを設定することも可能
+                })
+                .addTo(map)
+                .bindPopup(popupContent)
+                .openPopup(); // ポップアップをすぐに開く
+
+                // マーカーを中心に地図を移動し、現在のズームレベルを維持、または必要ならズームイン
+                map.setView(markerLatLng, map.getZoom() < 15 ? 15 : map.getZoom());
+                updateButtonStates();
+            };
+
+            // グラフに特定のポイントの縦ラインを表示する関数
+            const highlightChartPoint = (index) => {
+                if (!gpxChartInstance || !globalChartLabels.length || index < 0 || index >= globalChartLabels.length) {
+                    return;
+                }
+
+                const clickedLabel = globalChartLabels[index];
+                
+                // Chart.js Annotationsプラグインを使用してラインを更新
+                const annotations = gpxChartInstance.options.plugins.annotation.annotations;
+                if (annotations && annotations.clickedPointLine) {
+                    annotations.clickedPointLine.value = clickedLabel;
+                    annotations.clickedPointLine.display = true; // ラインを表示
+                    gpxChartInstance.update(); // チャートを更新してラインを表示
+                }
+            };
+
+            // GPXデータをグラフに表示する関数 (速度と高度)
+            const displayGpxChart = (pointsData) => {
+                if (gpxChartInstance) {
+                    gpxChartInstance.destroy(); // 既存のチャートがあれば破棄
+                }
+
+                const ctx = document.getElementById('gpxChart').getContext('2d');
+
+                globalChartLabels = pointsData.map(p => 
+                    p.time ? p.time.toLocaleString('ja-JP', { 
+                        hour: '2-digit', 
+                        minute: '2-digit', 
+                        second: '2-digit',
+                        hourCycle: 'h23'
+                    }) : ''
+                );
+                const altitudeData = pointsData.map(p => p.ele !== null ? parseFloat(p.ele.toFixed(2)) : null);
+                const speedData = pointsData.map(p => p.speed !== null ? parseFloat(p.speed.toFixed(2)) : null);
+
+                gpxChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: globalChartLabels, // グローバル変数を使用
+                        datasets: [
+                            {
+                                label: '高度 (m)',
+                                data: altitudeData,
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                fill: false,
+                                yAxisID: 'altitude',
+                                tension: 0.3, // 滑らかな線
+                                pointRadius: 0 // ポイントを非表示
+                            },
+                            {
+                                label: '時速 (km/h)',
+                                data: speedData,
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                fill: false,
+                                yAxisID: 'speed',
+                                tension: 0.3,
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false, // コンテナのサイズに合わせる
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        stacked: false,
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.parsed.y !== null) {
+                                            label += context.parsed.y + (context.dataset.yAxisID === 'altitude' ? ' m' : ' km/h');
+                                        }
+                                        return label;
+                                    }
+                                }
+                            },
+                            annotation: { // Annotations プラグインの設定
+                                annotations: {
+                                    clickedPointLine: { // 注釈のID
+                                        type: 'line',
+                                        mode: 'vertical',
+                                        scaleID: 'x',
+                                        value: undefined, // 初期値は非表示
+                                        borderColor: 'rgba(255, 204, 0, 0.8)', // 黄色で強調
+                                        borderWidth: 2,
+                                        borderDash: [6, 6], // 破線
+                                        label: {
+                                            content: '選択地点',
+                                            enabled: true,
+                                            position: 'top',
+                                            backgroundColor: 'rgba(255, 204, 0, 0.8)',
+                                            color: '#333'
+                                        },
+                                        display: false // 初期状態では非表示
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: '時刻'
+                                },
+                                autoSkip: true,
+                                maxTicksLimit: 7,   // X軸の目盛り数を制限
+                                maxRotation: 45     // X軸ラベルを最大45度回転させる
+                            },
+                            altitude: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: {
+                                    display: true,
+                                    text: '高度 (m)'
+                                },
+                                min: 0,
+                                grid: {
+                                    drawOnChartArea: false, // 左Y軸のグリッド線のみ表示 (右Y軸は非表示)
+                                }
+                            },
+                            speed: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: {
+                                    display: true,
+                                    text: '時速 (km/h)'
+                                },
+                                min: 0,
+                                grid: {
+                                    drawOnChartArea: false, // 右Y軸のグリッド線は非表示
+                                },
+                                ticks: {
+                                    callback: function(value, index, ticks) {
+                                        return value + ' km/h'; // 時速の目盛りに単位を追加
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+
+
+            // 表示されているGPXルートとテーブルデータをクリアする関数
+            const clearDisplayedGpxRoute = () => {
+                if (gpxPolyline) {
+                    map.removeLayer(gpxPolyline);
+                    gpxPolyline = null;
+                }
+                // ポイントマーカーを削除
+                if (currentPointMarker) {
+                    map.removeLayer(currentPointMarker);
+                    currentPointMarker = null;
+                }
+                // アクティブなテーブル行のハイライトを解除
+                if (activeTableRow) {
+                    activeTableRow.classList.remove('active-row');
+                    activeTableRow = null;
+                }
+                gpxDataTableBody.innerHTML = ''; // テーブルの内容もクリア
+                if (gpxChartInstance) {
+                    // チャートの注釈も非表示にする
+                    if (gpxChartInstance.options.plugins.annotation.annotations.clickedPointLine) {
+                        gpxChartInstance.options.plugins.annotation.annotations.clickedPointLine.display = false;
+                        gpxChartInstance.update(); // 更新を適用
+                    }
+                    gpxChartInstance.destroy(); // チャートも破棄
+                    gpxChartInstance = null;
+                }
+                // グローバルデータもクリア
+                globalProcessedGpxData = [];
+                globalChartLabels = [];
+
+                statusMessage.textContent = 'ルートをクリアしました。';
+                gpxFileInput.value = ''; // ファイル選択をリセット
+                updateButtonStates();
+                displayGpxDataInTable([]); // テーブルをクリア後、「データがありません」と表示
+                displayGpxChart([]); // チャートもクリア後、空の表示
+            };
+
+            // イベントリスナー
+            gpxFileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    return;
+                }
+
+                statusMessage.textContent = 'GPXファイルを読み込み中...';
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const gpxString = e.target.result;
+                        const rawGpxTrackPointsData = parseGpx(gpxString);
+
+                        const processedGpxData = [];
+                        for (let i = 0; i < rawGpxTrackPointsData.length; i++) {
+                            const currentPoint = rawGpxTrackPointsData[i];
+                            let speed = null; // 時速 (km/h)
+
+                            if (i > 0) {
+                                const prevPoint = rawGpxTrackPointsData[i - 1];
+                                if (prevPoint.time && currentPoint.time) {
+                                    const distanceKm = calculateDistance(prevPoint.lat, prevPoint.lon, currentPoint.lat, currentPoint.lon);
+                                    const timeDiffMs = currentPoint.time.getTime() - prevPoint.time.getTime();
+                                    const timeDiffHours = timeDiffMs / (1000 * 60 * 60); // msを時間に変換
+
+                                    if (timeDiffHours > 0) { // ゼロ除算を避ける
+                                        speed = distanceKm / timeDiffHours;
+                                    }
+                                }
+                            }
+                            processedGpxData.push({ ...currentPoint, speed: speed });
+                        }
+                        
+                        globalProcessedGpxData = processedGpxData; // グローバル変数に格納
+
+                        displayGpxTrack(processedGpxData); // 地図に表示
+                        displayGpxDataInTable(processedGpxData); // テーブルに表示
+                        displayGpxChart(processedGpxData); // グラフに表示
+
+                    } catch (error) {
+                        statusMessage.textContent = error.message || 'GPXファイルの解析に失敗しました。ファイルが破損しているか、不正な形式です。';
+                        console.error("GPX parsing error:", error);
+                        gpxDataTableBody.innerHTML = ''; // エラー時はテーブルもクリア
+                        if (gpxChartInstance) { // エラー時はチャートもクリア
+                            gpxChartInstance.destroy();
+                            gpxChartInstance = null;
+                        }
+                        // ポイントマーカーとアクティブ行もクリア
+                        if (currentPointMarker) { map.removeLayer(currentPointMarker); currentPointMarker = null; }
+                        if (activeTableRow) { activeTableRow.classList.remove('active-row'); activeTableRow = null; }
+                        // グローバルデータもクリア
+                        globalProcessedGpxData = [];
+                        globalChartLabels = [];
+
+                        updateButtonStates();
+                    }
+                };
+                reader.onerror = () => {
+                    statusMessage.textContent = 'ファイルの読み込みに失敗しました。';
+                    gpxDataTableBody.innerHTML = ''; // エラー時はテーブルもクリア
+                    if (gpxChartInstance) { // エラー時はチャートもクリア
+                        gpxChartInstance.destroy();
+                        gpxChartInstance = null;
+                    }
+                    // ポイントマーカーとアクティブ行もクリア
+                    if (currentPointMarker) { map.removeLayer(currentPointMarker); currentPointMarker = null; }
+                    if (activeTableRow) { activeTableRow.classList.remove('active-row'); activeTableRow = null; }
+                    // グローバルデータもクリア
+                    globalProcessedGpxData = [];
+                    globalChartLabels = [];
+                    
+                    updateButtonStates();
+                };
+                reader.readAsText(file);
+            });
+
+            clearRouteButton.addEventListener('click', clearDisplayedGpxRoute);
+
+            // 初期ロード時にボタンの状態とテーブル・グラフ表示を更新
+            updateButtonStates();
+            displayGpxDataInTable([]); // 初期状態でテーブルに「データがありません」と表示
+            displayGpxChart([]); // 初期状態で空のチャートを表示
+        });
+    </script>
+</body>
+</html>
