@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPXルート表示アプリ Ver1.30</title>
+    <title>GPXルート表示アプリ Ver1.40 (拡大機能付き)</title>
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -23,6 +23,10 @@
             display: flex; /* app-containerを中央に配置するため */
             justify-content: center; /* 水平中央 */
             align-items: center; /* 垂直中央 */
+        }
+
+        body.modal-open {
+            overflow: hidden; /* モーダル表示中は背景のスクロールを禁止 */
         }
 
         .app-container {
@@ -98,6 +102,15 @@
             color: #777;
             cursor: not-allowed;
         }
+        .expand-button {
+            padding: 3px 8px;
+            font-size: 0.8em;
+            background-color: #6c757d;
+        }
+        .expand-button:hover {
+            background-color: #5a6268;
+        }
+
         #gpxFileInput {
             margin: 0; /* 不要なマージンを削除 */
             flex-shrink: 0; /* 小さくなりにくいように */
@@ -149,13 +162,18 @@
             overflow: hidden; /* table-containerのスクロールを制御するため */
         }
 
-        #data-panel h2 {
-            margin-top: 0;
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 10px;
+            flex-shrink: 0; /* 縮小しない */
+        }
+
+        .panel-header h2 {
+            margin: 0;
             font-size: 1.2em;
             color: #2c3e50;
-            text-align: center;
-            flex-shrink: 0; /* 縮小しない */
         }
 
         .table-container {
@@ -224,14 +242,7 @@
             flex-direction: column; /* h2とcanvasを縦に並べるため */
             overflow: hidden; /* Canvas のサイズ調整のために必要 */
         }
-        #chart-panel h2 {
-            margin-top: 0;
-            margin-bottom: 10px;
-            font-size: 1.2em;
-            color: #2c3e50;
-            text-align: center;
-            flex-shrink: 0; /* 縮小しない */
-        }
+
         #gpxChart {
             flex-grow: 1; /* Canvas が親要素の残りの高さを埋める */
             max-height: 100%; /* 親要素を超えないようにする */
@@ -239,6 +250,70 @@
             height: 100% !important; /* Chart.js が生成するインラインスタイルを上書き */
         }
 
+        /* --- モーダルウィンドウ用のスタイル --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            display: none; /* 初期状態は非表示 */
+        }
+        .modal-window {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90vw;
+            height: 90vh;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            z-index: 1001;
+            display: none; /* 初期状態は非表示 */
+            flex-direction: column;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.3em;
+        }
+        .modal-close-button {
+            background: none;
+            border: none;
+            font-size: 2em;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0 10px;
+            color: #555;
+        }
+        .modal-content {
+            padding: 15px;
+            flex-grow: 1;
+            overflow: hidden; /* 子要素のサイズ管理 */
+            display: flex;
+            flex-direction: column;
+        }
+        /* モーダル内のテーブルコンテナは高さを100%にする */
+        .modal-content .table-container {
+            height: 100%;
+        }
+        /* モーダル内のキャンバスは高さを100%にする */
+        .modal-content #modalGpxChart {
+            flex-grow: 1;
+            max-height: 100%;
+            width: 100% !important;
+            height: 100% !important;
+        }
 
         /* 携帯電話などの小さい画面での調整 */
         @media (max-width: 900px) { /* 中画面でのブレークポイント */
@@ -307,7 +382,7 @@
 <body>
     <div class="app-container"> <!-- アプリ全体のコンテナ -->
         <div class="controls-panel">
-            <h1>GPXルート表示アプリ Ver1.40</h1>
+            <h1>GPXルート表示アプリ Ver1.50 (拡大機能付き)</h1>
             <div class="interaction-area"> <!-- 新しい横並びコンテナ -->
                 <div class="button-group">
                     <button id="clearRouteButton" class="red-button" disabled>ルートクリア</button>
@@ -320,7 +395,10 @@
             <div id="map"></div>
             <div class="side-panels"> <!-- データパネルとグラフパネルのコンテナ -->
                 <div id="data-panel">
-                    <h2>GPXデータポイント</h2>
+                    <div class="panel-header">
+                        <h2>GPXデータポイント</h2>
+                        <button class="expand-button" data-target="data-panel">拡大</button>
+                    </div>
                     <div class="table-container">
                         <table>
                             <thead>
@@ -338,12 +416,28 @@
                     </div>
                 </div>
                 <div id="chart-panel">
-                    <h2>速度・高度グラフ</h2>
+                    <div class="panel-header">
+                        <h2>速度・高度グラフ</h2>
+                        <button class="expand-button" data-target="chart-panel">拡大</button>
+                    </div>
                     <canvas id="gpxChart"></canvas>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- モーダルウィンドウ -->
+    <div id="modal-overlay" class="modal-overlay"></div>
+    <div id="modal-window" class="modal-window">
+        <div class="modal-header">
+            <h2 id="modal-title"></h2>
+            <button id="modal-close-button" class="modal-close-button">&times;</button>
+        </div>
+        <div id="modal-content" class="modal-content">
+            <!-- 拡大表示するコンテンツがここに挿入されます -->
+        </div>
+    </div>
+
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -368,8 +462,17 @@
             const clearRouteButton = document.getElementById('clearRouteButton');
             const gpxDataTableBody = document.getElementById('gpxDataTableBody');
 
+            // --- モーダル関連の要素を取得 ---
+            const modalOverlay = document.getElementById('modal-overlay');
+            const modalWindow = document.getElementById('modal-window');
+            const modalTitle = document.getElementById('modal-title');
+            const modalContent = document.getElementById('modal-content');
+            const modalCloseButton = document.getElementById('modal-close-button');
+            const expandButtons = document.querySelectorAll('.expand-button');
+
             let gpxPolyline = null; // GPXトラックのポリライン
             let gpxChartInstance = null; // Chart.jsインスタンス
+            let modalGpxChartInstance = null; // モーダル用 Chart.jsインスタンス
             let currentPointMarker = null; // 現在地図に表示されているポイントマーカー
             let activeTableRow = null; // 現在ハイライトされているテーブル行
 
@@ -597,13 +700,12 @@
                 }
             };
 
-            // GPXデータをグラフに表示する関数 (速度と高度)
-            const displayGpxChart = (pointsData) => {
-                if (gpxChartInstance) {
-                    gpxChartInstance.destroy(); // 既存のチャートがあれば破棄
-                }
-
-                const ctx = document.getElementById('gpxChart').getContext('2d');
+            // GPXデータをグラフに表示する汎用関数
+            const createGpxChart = (canvasId, pointsData) => {
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                
+                // モーダル表示用にX軸のラベル数を調整
+                const isModal = canvasId === 'modalGpxChart';
 
                 globalChartLabels = pointsData.map(p => 
                     p.time ? p.time.toLocaleString('ja-JP', { 
@@ -616,7 +718,7 @@
                 const altitudeData = pointsData.map(p => p.ele !== null ? parseFloat(p.ele.toFixed(2)) : null);
                 const speedData = pointsData.map(p => p.speed !== null ? parseFloat(p.speed.toFixed(2)) : null);
 
-                gpxChartInstance = new Chart(ctx, {
+                return new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: globalChartLabels, // グローバル変数を使用
@@ -695,9 +797,11 @@
                                     display: true,
                                     text: '時刻'
                                 },
-                                autoSkip: true,
-                                maxTicksLimit: 7,   // X軸の目盛り数を制限
-                                maxRotation: 45     // X軸ラベルを最大45度回転させる
+                                ticks: {
+                                    autoSkip: true,
+                                    maxTicksLimit: isModal ? 20 : 7, // モーダルではラベル数を増やす
+                                    maxRotation: isModal ? 45 : 45
+                                }
                             },
                             altitude: {
                                 type: 'linear',
@@ -707,9 +811,9 @@
                                     display: true,
                                     text: '高度 (m)'
                                 },
-                                min: 0,
+                                beginAtZero: true,
                                 grid: {
-                                    drawOnChartArea: false, // 左Y軸のグリッド線のみ表示 (右Y軸は非表示)
+                                    drawOnChartArea: true, 
                                 }
                             },
                             speed: {
@@ -720,7 +824,7 @@
                                     display: true,
                                     text: '時速 (km/h)'
                                 },
-                                min: 0,
+                                beginAtZero: true,
                                 grid: {
                                     drawOnChartArea: false, // 右Y軸のグリッド線は非表示
                                 },
@@ -733,6 +837,15 @@
                         }
                     }
                 });
+            };
+
+            const displayGpxChart = (pointsData) => {
+                 if (gpxChartInstance) {
+                    gpxChartInstance.destroy();
+                }
+                if (pointsData.length > 0) {
+                    gpxChartInstance = createGpxChart('gpxChart', pointsData);
+                }
             };
 
 
@@ -754,12 +867,7 @@
                 }
                 gpxDataTableBody.innerHTML = ''; // テーブルの内容もクリア
                 if (gpxChartInstance) {
-                    // チャートの注釈も非表示にする
-                    if (gpxChartInstance.options.plugins.annotation.annotations.clickedPointLine) {
-                        gpxChartInstance.options.plugins.annotation.annotations.clickedPointLine.display = false;
-                        gpxChartInstance.update(); // 更新を適用
-                    }
-                    gpxChartInstance.destroy(); // チャートも破棄
+                    gpxChartInstance.destroy();
                     gpxChartInstance = null;
                 }
                 // グローバルデータもクリア
@@ -774,7 +882,48 @@
                 gpxFileInput.value = ''; // ファイル選択をリセット
                 updateButtonStates();
                 displayGpxDataInTable([]); // テーブルをクリア後、「データがありません」と表示
-                displayGpxChart([]); // チャートもクリア後、空の表示
+                displayGpxChart([]); // チャートもクリア
+            };
+
+
+            // --- モーダル制御関数 ---
+            const openModal = (targetId) => {
+                modalContent.innerHTML = ''; // 中身をクリア
+
+                if (targetId === 'data-panel') {
+                    modalTitle.textContent = 'GPXデータポイント';
+                    const tableContainer = document.querySelector('#data-panel .table-container');
+                    const clonedTableContainer = tableContainer.cloneNode(true);
+                    modalContent.appendChild(clonedTableContainer);
+                } else if (targetId === 'chart-panel') {
+                    modalTitle.textContent = '速度・高度グラフ';
+                    const newCanvas = document.createElement('canvas');
+                    newCanvas.id = 'modalGpxChart';
+                    modalContent.appendChild(newCanvas);
+                    
+                    if (modalGpxChartInstance) {
+                        modalGpxChartInstance.destroy();
+                    }
+                    if (globalProcessedGpxData.length > 0) {
+                        modalGpxChartInstance = createGpxChart('modalGpxChart', globalProcessedGpxData);
+                    }
+                }
+
+                modalOverlay.style.display = 'block';
+                modalWindow.style.display = 'flex';
+                document.body.classList.add('modal-open');
+            };
+
+            const closeModal = () => {
+                modalOverlay.style.display = 'none';
+                modalWindow.style.display = 'none';
+                document.body.classList.remove('modal-open');
+                // モーダル用のグラフインスタンスがあれば破棄
+                if (modalGpxChartInstance) {
+                    modalGpxChartInstance.destroy();
+                    modalGpxChartInstance = null;
+                }
+                modalContent.innerHTML = ''; // パフォーマンスのために中身をクリア
             };
 
             // イベントリスナー
@@ -784,6 +933,7 @@
                     return;
                 }
 
+                clearDisplayedGpxRoute(); // 新しいファイルを読み込む前にクリア
                 statusMessage.textContent = 'GPXファイルを読み込み中...';
                 
                 const reader = new FileReader();
@@ -838,49 +988,28 @@
                     } catch (error) {
                         statusMessage.textContent = error.message || 'GPXファイルの解析に失敗しました。ファイルが破損しているか、不正な形式です。';
                         console.error("GPX parsing error:", error);
-                        gpxDataTableBody.innerHTML = ''; // エラー時はテーブルもクリア
-                        if (gpxChartInstance) { // エラー時はチャートもクリア
-                            gpxChartInstance.destroy();
-                            gpxChartInstance = null;
-                        }
-                        // ポイントマーカーとアクティブ行もクリア
-                        if (currentPointMarker) { map.removeLayer(currentPointMarker); currentPointMarker = null; }
-                        if (activeTableRow) { activeTableRow.classList.remove('active-row'); activeTableRow = null; }
-                        // グローバルデータもクリア
-                        globalProcessedGpxData = [];
-                        globalChartLabels = [];
-                        // 集計値もクリア
-                        totalRouteDistanceKm = 0;
-                        totalRouteTimeMs = 0;
-                        averageRouteSpeedKmH = 0;
-
-                        updateButtonStates();
+                        clearDisplayedGpxRoute();
                     }
                 };
                 reader.onerror = () => {
                     statusMessage.textContent = 'ファイルの読み込みに失敗しました。';
-                    gpxDataTableBody.innerHTML = ''; // エラー時はテーブルもクリア
-                    if (gpxChartInstance) { // エラー時はチャートもクリア
-                        gpxChartInstance.destroy();
-                        gpxChartInstance = null;
-                    }
-                    // ポイントマーカーとアクティブ行もクリア
-                    if (currentPointMarker) { map.removeLayer(currentPointMarker); currentPointMarker = null; }
-                    if (activeTableRow) { activeTableRow.classList.remove('active-row'); activeTableRow = null; }
-                    // グローバルデータもクリア
-                    globalProcessedGpxData = [];
-                    globalChartLabels = [];
-                    // 集計値もクリア
-                    totalRouteDistanceKm = 0;
-                    totalRouteTimeMs = 0;
-                    averageRouteSpeedKmH = 0;
-                    
-                    updateButtonStates();
+                    clearDisplayedGpxRoute();
                 };
                 reader.readAsText(file);
             });
 
             clearRouteButton.addEventListener('click', clearDisplayedGpxRoute);
+
+            // モーダル用のイベントリスナー
+            expandButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetId = button.getAttribute('data-target');
+                    openModal(targetId);
+                });
+            });
+            modalCloseButton.addEventListener('click', closeModal);
+            modalOverlay.addEventListener('click', closeModal);
+
 
             // 初期ロード時にボタンの状態とテーブル・グラフ表示を更新
             updateButtonStates();
